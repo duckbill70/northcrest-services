@@ -54,8 +54,13 @@ jobs:
           python3 deploy/render.py ${{ matrix.service }} "$IMAGE" > service.json
           gcloud run services replace service.json --region "$GCP_REGION" --project "$GCP_PROJECT" --quiet
 
+      # Not /healthz: Google's front end reserves paths ending in "z" on
+      # run.app URLs and answers 404 itself. The startup probe still uses
+      # /healthz, since it calls the container directly.
       - name: Smoke test
+        env:
+          SMOKE_PATH: ${{ matrix.service == 'booking-api' && '/api/airports' || '/api/status/airports' }}
         run: |
           url=$(gcloud run services describe ${{ matrix.service }} --region "$GCP_REGION" --project "$GCP_PROJECT" --format 'value(status.url)')
-          for i in $(seq 1 10); do curl -fsS "$url/healthz" && exit 0; sleep 3; done
+          for i in $(seq 1 10); do curl -fsS "$url$SMOKE_PATH" -o /dev/null && echo "ok: $url$SMOKE_PATH" && exit 0; sleep 3; done
           exit 1
