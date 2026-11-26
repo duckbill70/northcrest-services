@@ -1,0 +1,22 @@
+{
+  "name": "northcrest-services",
+  "private": true,
+  "description": "Northcrest Air back-end services (fictional airline demo).",
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -b services/booking-api services/flight-status-api",
+    "test": "vitest run",
+    "typecheck": "tsc -b services/booking-api services/flight-status-api --noEmit false"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

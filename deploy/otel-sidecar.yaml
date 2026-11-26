@@ -1,0 +1,89 @@
+# Copy of northcrest-platform modules/otel-pipeline/config/sidecar.yaml.
+# Keep the two in step; CI checks they match.
+#
+# Sidecar agent for Northcrest services (northcrest-services repository).
+# Runs as a second container next to each Cloud Run service, or on any VM.
+# The app sends OTLP to localhost with stock OpenTelemetry SDK settings;
+# the sidecar adds Google Cloud resource identity and Northcrest ownership
+# labels, then publishes to the pipeline's Pub/Sub topics. No networking
+# between projects is needed: the service account only needs
+# roles/pubsub.publisher on the topics (publisher_members in the module).
+#
+# Environment:
+#   OTEL_PIPELINE_PROJECT     observability project that owns the topics
+#   NORTHCREST_BUSINESS_UNIT  customer-channels, airport-operations, ...
+#   NORTHCREST_TIER           commercial, operational, safety-critical, ...
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: localhost:4317
+      http:
+        endpoint: localhost:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 65
+    spike_limit_percentage: 20
+
+  resourcedetection:
+    detectors: [env, gcp]
+    timeout: 10s
+
+  resource/northcrest:
+    attributes:
+      - key: northcrest.business_unit
+        value: ${env:NORTHCREST_BUSINESS_UNIT}
+        action: upsert
+      - key: northcrest.tier
+        value: ${env:NORTHCREST_TIER}
+        action: upsert
+      - key: northcrest.collector.role
+        value: sidecar
+        action: upsert
+
+  batch:
+    timeout: 2s
+    send_batch_size: 200
+    send_batch_max_size: 200
+
+exporters:
+  googlecloudpubsub/traces:
+    project: ${env:OTEL_PIPELINE_PROJECT}
+    topic: projects/${env:OTEL_PIPELINE_PROJECT}/topics/otel-traces
+    compression: gzip
+  googlecloudpubsub/metrics:
+    project: ${env:OTEL_PIPELINE_PROJECT}
+    topic: projects/${env:OTEL_PIPELINE_PROJECT}/topics/otel-metrics
+    compression: gzip
+  googlecloudpubsub/logs:
+    project: ${env:OTEL_PIPELINE_PROJECT}
+    topic: projects/${env:OTEL_PIPELINE_PROJECT}/topics/otel-logs
+    compression: gzip
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: warn
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource/northcrest, batch]
+      exporters: [googlecloudpubsub/traces]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource/northcrest, batch]
+      exporters: [googlecloudpubsub/metrics]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource/northcrest, batch]
+      exporters: [googlecloudpubsub/logs]
