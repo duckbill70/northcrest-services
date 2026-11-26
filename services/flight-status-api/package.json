@@ -1,0 +1,13 @@
+{
+  "name": "@northcrest/flight-status-api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/server.js",
+  "scripts": {
+    "start": "node -r @northcrest/common/dist/telemetry.js dist/server.js"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^9.4.1",
+    "@northcrest/common": "0.1.0"
+  }
+}

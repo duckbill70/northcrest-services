@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npm test
+
+      # The sidecar config is a copy of the platform's; the gateway expects
+      # exactly what the platform's version sends.
+      - name: Sidecar config matches the platform's
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository_owner }}/northcrest-platform/main/modules/otel-pipeline/config/sidecar.yaml -o /tmp/platform-sidecar.yaml
+          # Our copy carries a three-line header; compare what follows it.
+          diff <(tail -n +4 deploy/otel-sidecar.yaml) /tmp/platform-sidecar.yaml
+
+      - name: Cloud Run definitions render
+        env:
+          GCP_PROJECT: ncair-ci-customer
+          GCP_REGION: us-central1
+          OTEL_PIPELINE_PROJECT: ncair-ci-observability
+        run: |
+          for service in booking-api flight-status-api; do
+            python3 deploy/render.py "$service" "example.invalid/$service:ci" | python3 -m json.tool > /dev/null
+          done
+
+  image:
+    name: Image builds
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [booking-api, flight-status-api]
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build --build-arg SERVICE=${{ matrix.service }} -t ${{ matrix.service }}:ci .
+      - name: Starts and answers /healthz
+        run: |
+          docker run -d --name app -p 8080:8080 -e OTEL_SDK_DISABLED=true ${{ matrix.service }}:ci
+          for i in $(seq 1 30); do curl -fs localhost:8080/healthz && exit 0; sleep 1; done
+          docker logs app; exit 1
